@@ -606,7 +606,7 @@ this document's scope can fix.
 | Alternative | Why Rejected |
 |-------------|---------------|
 | Duplicate `sales.SalesInvoice`/`SalesInvoiceLine` into a module-owned entity, mirroring Accounts Payable exactly | Rejected: unlike AP (no purchasing module to source from), `sales.SalesInvoice` already exists as real, shipped data — duplicating it creates two drifting copies of the same invoice for no benefit (see Design decisions) |
-| An automatic subscriber on `sales.invoice.created`, mirroring Posting Rules Engine | Rejected: `sales.SalesInvoice.status` is a free-form, tenant-configurable dictionary value with no generic "this means finalized" signal — the same problem space as Accounts Payable's explicit-command choice, not Posting Rules Engine's structural-fact one (see Design decisions) |
+| An automatic subscriber on `sales.invoice.created`, mirroring Posting Rules Engine | Rejected: `sales.SalesInvoice.status` is a free-form, tenant-configurable dictionary value with no generic "this means finalized" signal — the same problem space as Accounts Payable's explicit-command choice, not Posting Rules Engine's structural-fact one (see Design decisions). Any later automatic trigger on `sales.invoice.*` must also skip invoices that mirror an external ledger (Edge Cases & Failure Scenarios, "Invoices imported from an external ledger"), because those events carry no provenance. |
 | Add `accountId` directly to `sales.SalesInvoiceLine`, mirroring `VendorInvoiceLine.accountId` | Not this module's table to alter — `sales` owns that entity and its migrations; a thin, additive `SalesInvoiceLineRevenueAccount` table achieves the same per-line assignment without touching `sales`'s schema |
 | Build the `customers.CustomerEntity` ↔ `contractors.Contractor` bridge as part of this document | Rejected as premature: no confirmed need for *automatic* resolution exists anywhere in this codebase yet (Contractor Registry itself only names this document as an undesigned, indirect consumer); an explicit, optional `contractorId` argument covers the one real, confirmed need (contractor snapshotting) without speculatively designing a mapping nobody has asked for |
 | A new subsidiary-ledger table for per-customer receivable balances | Deferred, not rejected: `sales` does not maintain invoice balances (payments update orders only), so neither `sales` nor this module can supply per-customer balances today. It needs receipt posting (#6055) and invoice-balance maintenance in `sales` first (see Design decisions, "No subsidiary ledger in Phase 1", and Out of scope) |
@@ -779,14 +779,18 @@ No seed data — unlike Posting Rules Engine's zespół 4→5 template,
 there is no natural default revenue/receivable/VAT account mapping to
 seed (every tenant's chart of accounts and revenue-account structure
 differs); Module Config values start unset and must be configured
-before the first posting (see Migration & Deployment).
+before the first posting, and `postingEnabled` starts `false`, so no
+organization posts until an admin turns it on (see Migration & Deployment).
 
 ### Commands (Command Pattern, `commands/`)
 
 - `postSalesInvoiceToLedger` — the only mutating command. Input:
   `{ salesInvoiceId: string, lineAccounts: { salesInvoiceLineId: string, accountId: string }[], contractorId?: string }`.
   Input shape is validated against a zod schema (`data/validators.ts`)
-  before any business-rule check below runs. Rejects if a
+  before any business-rule check below runs. It first reads the active
+  organization's settings snapshot (Module Config) and rejects with 422
+  `POSTING_DISABLED` unless `postingEnabled` is `true`, before any other
+  business-rule check and before any write. Rejects if a
   `SalesInvoiceGlPosting` already exists for
   `salesInvoiceId` (idempotency — see Invariants). Loads the
   `SalesInvoice` and its lines directly via `entityManager`
@@ -804,7 +808,7 @@ before the first posting (see Migration & Deployment).
   duplicate line IDs, missing assignments and IDs outside the invoice with
   422 `INVALID_LINE_ACCOUNTS` before any writes. Resolves
   `receivableAccountId`/`vatOutputAccountId` (and, on demand,
-  `roundingAccountId`) from one scoped settings snapshot through `lib/moduleConfig.ts`
+  `roundingAccountId`) from the same scoped settings snapshot through `lib/moduleConfig.ts`
   using the **organization-qualified keys** Module Config defines (rejects
   with a readable configuration error if either required value is unset for
   the active organization, mirroring Accounts Payable's own
@@ -942,7 +946,8 @@ the `GET` route; both are ordinary authenticated, feature-gated routes.
   File Manifest) is a minimal `<CrudForm>` (from
   `@open-mercato/ui/backend/CrudForm`) with three `<FormField>`-wrapped
   `LedgerAccount` pickers (`receivableAccountId`, `vatOutputAccountId`,
-  optional `roundingAccountId`) for the **active organization**. It loads
+  optional `roundingAccountId`) and a `postingEnabled` checkbox, off by
+  default, for the **active organization**. It loads
   `GET /api/sales_invoices_gl_posting/settings` into `initialValues`
   (including `updatedAt`) and saves through
   `PUT /api/sales_invoices_gl_posting/settings`; `CrudForm` derives the
@@ -987,14 +992,17 @@ constraint elsewhere in the repo (e.g.
 
 ### Module Config
 
-Three configuration values in `ModuleConfig`, organized
+Four configuration values in `ModuleConfig`, organized
 **per organization** because the accounts they name are organization-scoped:
 `receivableAccountId` (FK-id to `ledger.LedgerAccount`),
-`vatOutputAccountId` (FK-id to `ledger.LedgerAccount`) and
+`vatOutputAccountId` (FK-id to `ledger.LedgerAccount`),
 `roundingAccountId` (FK-id to `ledger.LedgerAccount`, required only before the
-first foreign-currency invoice that produces a rounding difference). Both of
-the first two are required before the first posting (see Migration &
-Deployment).
+first foreign-currency invoice that produces a rounding difference) and
+`postingEnabled` (boolean, `false` when unset). Both of the first two are
+required before the first posting (see Migration & Deployment), and
+`postingEnabled` must be `true`, independently of the accounts: it is the
+organization's explicit switch for posting (Edge Cases & Failure Scenarios,
+"Invoices imported from an external ledger").
 
 `ModuleConfigService` keys a row by `(moduleId, name, tenantId)` and records
 `organizationId` as metadata only (`configs/lib/module-config-service.ts`:
@@ -1006,7 +1014,8 @@ contract:
 
 - `lib/moduleConfig.ts` owns the key builder:
   `accountConfigKey(name, organizationId)` → `"<name>:<organizationId>"` for
-  `name` in `receivableAccountId` / `vatOutputAccountId` / `roundingAccountId`,
+  `name` in `receivableAccountId` / `vatOutputAccountId` / `roundingAccountId` /
+  `postingEnabled`,
   and passes `scope: { tenantId, organizationId }` on every read and write so
   the row's metadata matches its key.
 - Every read and write requires a resolved `organizationId`; a posting or a
@@ -1017,11 +1026,12 @@ contract:
   posting's `tenantId`/`organizationId` scope is rejected (422
   `ACCOUNT_OUT_OF_SCOPE`), never silently used.
 - Provisioning (`setup.ts` defaults) does not seed values: an organization's
-  chart of accounts differs, so both required keys start unset for every
-  organization until an admin saves them (Migration & Deployment).
+  chart of accounts differs, so both required account keys start unset, and
+  `postingEnabled` reads as `false`, for every organization until an admin
+  saves them (Migration & Deployment).
 
 **Atomic settings read and save.** The module-owned `lib/moduleConfig.ts`
-reads the three qualified rows in **one scoped database query** for GET and
+reads the four qualified rows in **one scoped database query** for GET and
 for posting. This gives each reader one committed configuration snapshot.
 The generic `ModuleConfigService` reads keys individually, supports an
 instance fallback, and its `setValue` flushes one row and updates its cache
@@ -1031,17 +1041,17 @@ For PUT, open one database transaction and acquire a PostgreSQL
 transaction-scoped advisory lock keyed by this module, tenant and
 organization **before reading the version**. Use that transaction's
 `EntityManager` throughout. The lock exists even on the first save when
-there are no rows to lock. Read all three qualified rows directly from the
+there are no rows to lock. Read all four qualified rows directly from the
 database, compare their newest `updatedAt` to the request (null requires
 zero rows), and return 409 `CONFLICT` on mismatch. Validate the selected
-accounts and write all three values, including a null rounding account,
-through the same transaction. Assign all three a common millisecond
+accounts and write all four values, including a null rounding account and
+`postingEnabled`, through the same transaction. Assign all four a common millisecond
 timestamp strictly greater than the previous version, including consecutive
-saves in the same millisecond. Set this timestamp explicitly in all three
+saves in the same millisecond. Set this timestamp explicitly in all four
 row updates so ORM timestamp hooks cannot collapse successive versions.
 Return that version only upon commit. Any
 failure rolls back the complete write. These private keys use the aggregate
-accessor for GET, PUT and invoice posting. Invalidate the three qualified
+accessor for GET, PUT and invoice posting. Invalidate the four qualified
 keys through the existing service after commit for any other config-service
 readers. No cache operation publishes uncommitted values.
 
@@ -1075,7 +1085,8 @@ readers. No cache operation publishes uncommitted values.
   a rounding difference exists without `roundingAccountId`
   (`ROUNDING_ACCOUNT_UNSET`) or exceeds the tolerance
   (`ROUNDING_DIFFERENCE_TOO_LARGE`), an account id is outside the posting's
-  organization (`ACCOUNT_OUT_OF_SCOPE`), or the request has no resolved
+  organization (`ACCOUNT_OUT_OF_SCOPE`), posting is not enabled for the active
+  organization (`POSTING_DISABLED`), or the request has no resolved
   organization (`ORGANIZATION_REQUIRED`) (see Design decisions, Commands,
   Module Config) — one discriminated error code per cause, the same typed-error
   precedent Accounts Payable sets with `FISCAL_PERIOD_LOCKED`. In Phase 1 it is called
@@ -1100,15 +1111,17 @@ readers. No cache operation publishes uncommitted values.
   the settings surface is one permission and an admin cannot write a
   configuration they are not allowed to read back. Returns
   `{ receivableAccountId: string | null, vatOutputAccountId: string | null,
-  roundingAccountId: string | null, updatedAt: string | null }` for the
+  roundingAccountId: string | null, updatedAt: string | null }`, plus
+  `postingEnabled: boolean` (`false` when unset), for the
   active organization, read through `lib/moduleConfig.ts`; `updatedAt` is the
-  newest `ModuleConfig.updatedAt` among the three rows (`null` when none is
+  newest `ModuleConfig.updatedAt` among the four rows (`null` when none is
   set) and is the version the PUT compares against.
 - `PUT /api/sales_invoices_gl_posting/settings` — the settings write route.
   `metadata` with `PUT: { requireAuth: true, requireFeatures:
   ['sales_invoices_gl_posting.settings.manage'] }`. **Body** (zod,
   `data/validators.ts`): `{ receivableAccountId: uuid, vatOutputAccountId:
-  uuid, roundingAccountId: uuid | null, updatedAt: string | null }`. It
+  uuid, roundingAccountId: uuid | null, updatedAt: string | null }`, plus
+  `postingEnabled: boolean`. It
   resolves the route context (`createRequestContainer` +
   `getAuthFromRequest`, `tenantId`, `organizationId`, actor id — the
   `catalog/api/settings/route.ts` precedent), rejects 422
@@ -1137,7 +1150,7 @@ readers. No cache operation publishes uncommitted values.
 **Caching:** neither Phase 1 read route requires caching. The posting status route is a point lookup
 keyed by the same unique index (`organization_id, tenant_id,
 sales_invoice_id`) that backs the idempotency check in the command.
-The settings route reads one organization's three keys in one query.
+The settings route reads one organization's four keys in one query.
 
 ## Migration & Deployment
 
@@ -1147,7 +1160,11 @@ Module Setup) — `receivableAccountId`/`vatOutputAccountId` must be
 configured by an admin **for each organization** before its first
 `postSalesInvoiceToLedger` call; the command rejects with a readable error
 until both are set for the posting's organization, the same UX Accounts
-Payable already provides for its own unset configuration. No backfill: invoices created before this module is
+Payable already provides for its own unset configuration. An admin must
+also turn on `postingEnabled` for that organization; until then the command
+rejects with 422 `POSTING_DISABLED`. An organization whose invoices are
+imported from an external ledger leaves it off (Edge Cases & Failure
+Scenarios). No backfill: invoices created before this module is
 enabled are never automatically posted — an operator posts them
 individually (or a future bulk-posting tool, out of scope here) once
 configuration is in place.
@@ -1158,7 +1175,7 @@ configuration is in place.
    migration.
 2. `data/validators.ts` for `postSalesInvoiceToLedger`'s input.
 3. Implement the transaction-scoped settings accessor for `receivableAccountId`/
-   `vatOutputAccountId`/`roundingAccountId` through `lib/moduleConfig.ts`'s
+   `vatOutputAccountId`/`roundingAccountId`/`postingEnabled` through `lib/moduleConfig.ts`'s
    organization-qualified keys, plus the `GET`/`PUT`
    `/api/sales_invoices_gl_posting/settings` routes and the settings page
    (API Contracts, Backend Pages).
@@ -1287,9 +1304,14 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   (Invariant 1), and 422 with a discriminated error code for each of
   the rejection causes above (balance mismatch, null `issueDate`,
   incomplete `lineAccounts`, unresolved config/currency).
+- Assert the command rejects with 422 `POSTING_DISABLED` while
+  `postingEnabled` is unset or `false` for the organization, even with both
+  accounts configured, and creates no posting, journal entry or event; the
+  same invoice posts once the setting is `true`.
 
 - Assert `GET /api/sales_invoices_gl_posting/settings` returns the active
-  organization's three account ids and `updatedAt`, `403` without
+  organization's three account ids, `postingEnabled` (`false` when unset) and
+  `updatedAt`, `403` without
   `sales_invoices_gl_posting.settings.manage`, and never another organization's
   values in a two-organization tenant.
 - Assert `PUT /api/sales_invoices_gl_posting/settings` requires
@@ -1325,6 +1347,93 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   foreign-currency invoices, the receivable account's summed `debit` equals
   the sum of the booked base-currency receivable debits, not a raw sum of
   invoice-currency `grandTotalGrossAmount`.
+
+## Edge Cases & Failure Scenarios
+
+### Invoices imported from an external ledger
+
+[PR 9641](https://github.com/open-mercato/open-mercato/pull/9641) (open; it
+implements `.ai/specs/2026-11-06-sales-invoice-import-write-path.md`) lets an
+accounting integration, first `@open-mercato/sync-xero`, store invoices that
+another system issued and has already booked in its own ledger. The cases
+below were checked against that PR at head `ab7f5320c8`.
+
+- **Double posting.** An imported invoice mirrors an entry that already exists
+  in the source ledger. Posting it here books the same revenue, VAT and
+  receivable a second time. Nothing in `sales` marks an invoice as imported.
+  That spec defers a provenance column, and an invoice without an order is
+  already accepted.
+- **Negative lines.** PR 9641 allows negative amounts on five line fields of
+  any `kind`, and on `taxTotalAmount`, `subtotalNetAmount` and
+  `grandTotalNetAmount`. The gross totals stay at or above zero. This command
+  refuses such an invoice before any write:
+  - `discount` and `adjustment` lines are rejected (Design decisions,
+    "Line-kind scope");
+  - a negative line total on any other `kind` is negative revenue, rejected
+    with 422 `UNPOSTABLE_INVOICE_AMOUNTS` (Commands);
+  - the ledger itself accepts only nonnegative amounts, with exactly one
+    positive side per line.
+- **Header totals not derived from the lines.** Invoices already store the
+  header totals the caller sends. An import sends the source system's totals,
+  which can differ from the sum of the lines when the source rounds at another
+  level. The balance-identity check (Design decisions, "Header-level discounts
+  are out of scope") rejects any difference with 422 and posts nothing. Phase 1
+  books no rounding difference in the base currency: the rounding line exists
+  only for a foreign-currency conversion.
+- **Lines replaced after posting.** `PUT /api/sales/invoices` with
+  `replaceLines: true` deletes every line and inserts new lines with new ids,
+  also on an invoice that has payment allocations. Undo restores the old ids.
+  After a posting, the journal entry keeps the old amounts, and the
+  `SalesInvoiceLineRevenueAccount` rows keep line ids that no longer exist
+  (they hold FK-ids only, by design).
+- **Invoice removed after posting.** Undo of `sales.invoices.create` deletes
+  the invoice row when no payment allocation, credit memo or note references
+  it. A posting from this module does not count as a reference, because
+  `sales` cannot depend on this module.
+- **No re-validation or reversal.** Neither of the two cases above re-validates
+  or reverses the entry. This is the gap named in Risks & Impact Review ("`sales`
+  can edit a `SalesInvoice`'s lines/amounts…"), now reachable through a
+  documented API. The import spec states that nothing computes from invoice
+  lines today. Once this module ships, the posting does.
+- **Foreign-currency imports.** They are rejected with 422
+  `EXCHANGE_RATE_MISSING` until Sales stores the invoice rate (Design
+  decisions, "Foreign-currency invoice delivery"). In Phase 1 the cases above
+  therefore concern base-currency imports only.
+
+**Phase 1 rule: invoices that mirror an external ledger are not posted.**
+
+- **Before `sales` records provenance**, the gate is the organization setting
+  `postingEnabled` (Module Config), `false` by default and independent of the
+  account settings. While it is off, the command rejects with 422
+  `POSTING_DISABLED` before any write. An admin turns it on only in an
+  organization whose invoices Open Mercato issues; an organization whose
+  invoices are imported leaves it off. The module is enabled per application
+  in `modules.ts`, not per organization, so this setting is the
+  per-organization switch.
+- **Once `sales` records provenance**, the command also rejects an imported
+  invoice with 422 before any write, so an organization that both imports
+  invoices and issues its own can turn `postingEnabled` on.
+- **Until then, an organization that both imports invoices and issues its
+  own** keeps `postingEnabled` off.
+
+> ⚠ NEEDS HUMAN CONFIRMATION (OM Core): should an invoice that mirrors an
+> external ledger ever reach the Open Mercato ledger, and which `sales` field
+> should mark it?
+>
+> Working decision (Commerce Weavers, 2026-11-24): no, it should not.
+>
+> - Phase 1 posts only invoices issued in Open Mercato and uses the
+>   `postingEnabled` gate above.
+> - The predicate is the provenance or amounts-mode column that the import
+>   spec defers.
+> - A `SyncExternalIdMapping` row is not used as the predicate. The entity has
+>   no field that records which system issued a record. The Xero App Spec
+>   treats a `sync_xero` row on `sales.invoice` as the signal of a
+>   Xero-sourced invoice, but that is one integration's convention. The import
+>   spec also writes the row only after the invoice commits.
+> - Not chosen: posting imported invoices as a second copy of the source
+>   ledger. That counts revenue and VAT twice whenever both ledgers feed the
+>   same reports.
 
 ## Risks & Impact Review
 
@@ -1375,6 +1484,18 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   unresolved question, named here rather than designed around. A
   real, unresolved audit-integrity gap this document does not fix,
   named rather than silently assumed away.
+- **An invoice imported from an external ledger can be booked twice:
+  once at its source and once here.** The write path in
+  [PR 9641](https://github.com/open-mercato/open-mercato/pull/9641) makes
+  imported invoices a supported `sales` use, and nothing on the invoice
+  marks them. The Phase 1 mitigation is the organization setting
+  `postingEnabled`, off by default and turned on only where Open Mercato
+  issues the invoices (Edge Cases & Failure Scenarios, "Invoices imported
+  from an external ledger"). Once `sales` records provenance, the command
+  also rejects an imported invoice with 422. Negative lines, and header totals that differ from the lines,
+  are refused before any write. Lines replaced after posting, or an
+  invoice removed by create undo, leave the entry standing, as in the
+  previous item.
 - **Output VAT loses its per-rate breakdown at the GL-posting level**
   (see Design decisions, "Aggregating every line's tax") — any
   process needing a JPK_V7-style rate breakdown (23%/8%/5%/0%/zw.)
@@ -1543,7 +1664,7 @@ review above hasn't already covered.
 | packages/core/AGENTS.md | Optimistic locking (`updatedAt`) on user-editable entities | N/A for the two entities; Compliant for the settings write | Both new posting entities are write-once/append-only — no `updatedAt`, matching `JournalEntry`'s immutable-posting precedent. The one user-editable surface is the module configuration, and the settings `PUT` compares the supplied `ModuleConfig.updatedAt` and returns 409 `CONFLICT` on a stale save (API Contracts, Backend Pages), which `CrudForm` surfaces as the standard conflict bar |
 | packages/core/AGENTS.md | Cross-module touchpoints name mechanism, owner, and module-absent behavior | Compliant | `sales`/`ledger` (hard `requires`, direct-entity-read / `commandBus`) and `contractors` (optional peer, `tryResolve`, omitted ID works without a registry, explicit ID requires a scoped live match) are all named explicitly in Cross-module integration |
 | packages/events/AGENTS.md | No direct cross-module calls; events for side effects | Compliant | No direct cross-module *service* calls; writes into `ledger` go through `commandBus.execute('ledger.postJournalEntry', ...)`; reads of `sales.SalesInvoice`/`SalesInvoiceLine` and `ledger.LedgerAccount` are the sanctioned hard-dependency direct-entity-read pattern (see Cross-module integration), not a rule violation; Phase 1 declares no AR event and publishes the existing persistent ledger event after commit |
-| packages/cache/AGENTS.md | Cache resolved via DI; tenant-scoped tags; invalidation declared per write path | N/A | Both GETs read the database. The status route uses the unique posting index and the settings route fetches three qualified keys in one snapshot. |
+| packages/cache/AGENTS.md | Cache resolved via DI; tenant-scoped tags; invalidation declared per write path | N/A | Both GETs read the database. The status route uses the unique posting index and the settings route fetches four qualified keys in one snapshot. |
 | packages/ui/AGENTS.md | Backend forms use `<CrudForm>`; non-`CrudForm` writes use `useGuardedMutation` | Compliant | Backend Pages: the settings page uses `<CrudForm>`/`<FormField>`; the posting widget (`useGuardedMutation(...).runMutation(...)`) is Phase 2, so Phase 1 has no non-`CrudForm` UI write |
 | packages/ui/src/backend/AGENTS.md | All HTTP goes through `apiCall`/`apiCallOrThrow` (never raw `fetch`) | Compliant | The settings page is a `<CrudForm>` loading `GET /api/sales_invoices_gl_posting/settings` and saving through the `PUT`, with its submit path on `apiCall` (the Phase 2 widget's reads and trigger will too) — no raw `fetch` |
 | root AGENTS.md (Design System Rules) | Semantic status tokens, Tailwind text scale, shared primitives, `aria-label` on icon-only buttons | N/A in Phase 1 (applies to the Phase 2 widget) | `<StatusBadge>` for posted/not-posted status (semantic tokens only, e.g. `bg-status-success-bg`, never `bg-green-*`); neither new control is icon-only, so no `aria-label` gap applies |
@@ -1969,3 +2090,22 @@ Not yet re-reviewed after these edits.
   for invalid assignments.
 - Aligned journal line construction with ledger's positive-side rule and added
   coverage for VAT-exempt, free-line and all-zero invoices.
+
+### 2026-11-24 — Invoices imported from an external ledger (PR 9641)
+
+- Added Edge Cases & Failure Scenarios for invoices stored through the import
+  write path of PR 9641: double posting, negative lines, header totals that
+  differ from the lines, and line replacement or create undo after posting.
+  States that a negative line total counts as negative revenue.
+- Added the Phase 1 rule that invoices mirroring an external ledger are not
+  posted, enforced by a new organization setting `postingEnabled` (default
+  `false`; 422 `POSTING_DISABLED`), and after `sales` records provenance also
+  by a 422 for an imported invoice. The open question for OM Core carries a
+  working decision.
+- Module Config, the settings `GET`/`PUT`, the settings page, Migration &
+  Deployment, Implementation Plan step 3 and Testing Strategy carry the new
+  setting.
+- Alternatives Considered: any later automatic trigger on `sales.invoice.*`
+  must skip invoices that mirror an external ledger.
+- Added a Risks entry. No change to the data model; the command and the
+  settings API gain the `postingEnabled` check and field.
