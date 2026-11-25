@@ -98,6 +98,20 @@ const publicationCases = [
   { mode: 'inside a caller transaction', callerTransaction: true, enqueueFails: false },
 ]
 
+const DECIMAL_STRING = /^\d+(\.\d+)?$/
+
+function expectNumericStringContract(lines: ReadonlyArray<Record<string, unknown>>) {
+  expect(lines.length).toBeGreaterThan(0)
+  for (const line of lines) {
+    for (const field of ['debit', 'credit', 'exchangeRate', 'amountCurrency']) {
+      expect(typeof line[field]).toBe('string')
+      expect(line[field]).toMatch(DECIMAL_STRING)
+    }
+    expect(typeof line.currencyId).toBe('string')
+    expect(line.currencyId).not.toBe('')
+  }
+}
+
 function expectPublication(callerTransaction: boolean, enqueueFails: boolean, journalEntryId: string, lines: PostedLine[]) {
   if (enqueueFails) {
     const attributes = { journalEntryId, tenantId: TENANT, organizationId: ORG }
@@ -116,6 +130,8 @@ function expectPublication(callerTransaction: boolean, enqueueFails: boolean, jo
     expect.objectContaining({ journalEntryId, lines }),
     { persistent: true },
   )
+  const [, payload] = emitLedgerEvent.mock.calls[0] as unknown as [string, { lines: Array<Record<string, unknown>> }]
+  expectNumericStringContract(payload.lines)
 }
 
 describe('ledger.journal_entry.posted', () => {
@@ -152,6 +168,7 @@ describe('ledger.journal_entry.posted', () => {
     expectPublication(callerTransaction, enqueueFails, result.journalEntryId, lines)
     expect(em.transactional).toHaveBeenCalledTimes(callerTransaction ? 0 : 1)
     expect(lines).toHaveLength(2)
+    expectNumericStringContract(lines)
     expect(lines.find((line) => line.accountId === EXPENSE)).toMatchObject({
       debit: '425.00',
       currencyId: PLN,
@@ -227,6 +244,7 @@ describe('ledger.journal_entry.posted', () => {
     expectPublication(callerTransaction, enqueueFails, result.journalEntryId, lines)
     expect(em.transactional).toHaveBeenCalledTimes(callerTransaction ? 0 : 1)
     expect(lines).toHaveLength(2)
+    expectNumericStringContract(lines)
     expect(lines.find((line) => line.accountId === EXPENSE)).toMatchObject({
       debit: '0',
       credit: '425.00',

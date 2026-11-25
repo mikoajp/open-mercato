@@ -90,6 +90,29 @@ it('returns a readable currency code next to the unchanged currency id on each l
   expect(currencyCall?.[1]).toEqual({ id: { $in: [PLN_ID, EUR_ID] }, organizationId: 'org-a', tenantId: 'tenant-a' })
 })
 
+it('keeps the numeric line fields as decimal strings next to the currency id and code', async () => {
+  mockFindLines.mockResolvedValue([
+    line('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', PLN_ID, '430.0017', '0'),
+    line('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', EUR_ID, '0', '430.0017'),
+  ])
+
+  const lines = await loadDetailLines()
+
+  expect(lines).toHaveLength(2)
+  for (const row of lines) {
+    for (const field of ['debit', 'credit', 'exchangeRate', 'amountCurrency', 'currencyId', 'currencyCode']) {
+      expect(typeof row[field]).toBe('string')
+    }
+    for (const field of ['debit', 'credit', 'exchangeRate', 'amountCurrency']) {
+      expect(row[field]).toMatch(/^\d+(\.\d+)?$/)
+    }
+  }
+  expect(lines.map(({ debit, credit, exchangeRate, amountCurrency, currencyId, currencyCode }) => ({ debit, credit, exchangeRate, amountCurrency, currencyId, currencyCode }))).toEqual([
+    { debit: '430.0017', credit: '0', exchangeRate: '1.00000000', amountCurrency: '430.0017', currencyId: PLN_ID, currencyCode: 'PLN' },
+    { debit: '0', credit: '430.0017', exchangeRate: '4.30001234', amountCurrency: '100.0001', currencyId: EUR_ID, currencyCode: 'EUR' },
+  ])
+})
+
 it('falls back to the currency id when the code cannot be resolved', async () => {
   mockFindLines.mockResolvedValue([
     line('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', PLN_ID, '430.0017', '0'),
