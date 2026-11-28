@@ -1,4 +1,4 @@
-import { postSalesInvoiceToLedgerSchema } from '../validators'
+import { postSalesInvoiceToLedgerSchema, settingsUpdateSchema } from '../validators'
 
 const INVOICE = '11111111-1111-4111-8111-111111111111'
 const LINE_A = '22222222-2222-4222-8222-222222222222'
@@ -49,5 +49,30 @@ describe('postSalesInvoiceToLedgerSchema', () => {
         ],
       }).success,
     ).toBe(true)
+  })
+})
+
+describe('settingsUpdateSchema', () => {
+  const valid = {
+    receivableAccountId: ACCOUNT,
+    vatOutputAccountId: LINE_A,
+    roundingAccountId: null,
+    postingEnabled: true,
+    updatedAt: null,
+  }
+
+  it('accepts both required accounts, a null rounding account and a null first version', () => {
+    expect(settingsUpdateSchema.parse(valid)).toEqual(valid)
+  })
+
+  it('rejects turning posting on without the required accounts', () => {
+    const { receivableAccountId: _omitted, ...withoutReceivable } = valid
+    expect(settingsUpdateSchema.safeParse(withoutReceivable).success).toBe(false)
+  })
+
+  it('requires an explicit boolean for postingEnabled and an explicit version field', () => {
+    expect(settingsUpdateSchema.safeParse({ ...valid, postingEnabled: 'true' }).success).toBe(false)
+    const { updatedAt: _version, ...withoutVersion } = valid
+    expect(settingsUpdateSchema.safeParse(withoutVersion).success).toBe(false)
   })
 })
