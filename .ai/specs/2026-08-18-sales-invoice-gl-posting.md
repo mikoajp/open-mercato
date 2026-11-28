@@ -1,15 +1,16 @@
 # Sales Invoice GL Posting
 
-**Dependencies and delivery (2026-11-23).** The [General Ledger design](https://github.com/open-mercato/open-mercato/pull/5663)
-and its [implementation](https://github.com/open-mercato/open-mercato/pull/9860)
-are open. Posting requires the deployed ledger command and event contract.
+**Dependencies and delivery (2026-11-28).** The General Ledger
+[implementation](https://github.com/open-mercato/open-mercato/pull/9860)
+merged on 2026-11-27; its [design](https://github.com/open-mercato/open-mercato/pull/5663)
+is approved and not merged yet. Posting uses the merged ledger command and event contract.
 [Accounts Payable](https://github.com/open-mercato/open-mercato/pull/5962) is a
 design precedent. The [Contractor Registry proposal](https://github.com/open-mercato/open-mercato/pull/5955)
 closed unmerged on 2026-11-15. Main has no `contractors` module. Phase 1 can
 ship and post invoices without it. An explicitly supplied contractor requires
 a live, scoped registry lookup (Design Decisions).
-[Multi-Currency](https://github.com/open-mercato/open-mercato/pull/6190) is
-open. Phase 1 initially posts base-currency invoices only. The planned FX
+[Multi-Currency](https://github.com/open-mercato/open-mercato/pull/6190)
+merged on 2026-11-27. Phase 1 initially posts base-currency invoices only. The planned FX
 path activates when Sales ships the stored invoice exchange rate.
 
 > **Second-round review (2026-10-09, `@adeptofvoltron`, head `40badbe9`).**
@@ -520,12 +521,13 @@ review.
 
 **`documentType: 'external_own'` — a sales invoice is a dowód
 wystawiony przez naszą firmę, the opposite case from Accounts
-Payable's `external_foreign`.** #5663's art. 20 ust. 2–3 enum already
-covers this distinction generically
-(`external_foreign`/`external_own`/`internal`/`collective`/
-`corrective`/`substitute`) — no new enum value needed, this document
-simply uses the other branch of an enum AP already exercises the first
-half of.
+Payable's `external_foreign`.** #5663 lists the art. 20 ust. 2–3
+document types (`external_foreign`/`external_own`/`internal`/`collective`/
+`corrective`/`substitute`), and this document uses `external_own`, the
+counterpart of the value AP uses. The merged ledger does not enforce that
+list: `documentType` is free text of at most 100 characters
+(`ledger/data/validators.ts`), so the value is a convention this module
+must send exactly, not one the ledger validates.
 
 **Standalone invoices (no `order`) have no customer identity at all in
 `sales`'s own schema — named, not solved.** `SalesInvoice.order` is
@@ -594,8 +596,10 @@ this document's scope can fix.
    Posting Rules Engine (which reclassifies through a *second*,
    separate `postJournalEntry` call and therefore needs its own
    period-close guard), this module posts once, directly — #5663's own
-   `postJournalEntry` period-lock check is the only guard needed, with
-   nothing further to design here.
+   `postJournalEntry` period-lock check is the only guard needed. The
+   merged ledger currently answers a posting into a locked period with 422
+   and a translated message but no error code, so this module's command
+   cannot rely on a code from the ledger for that case.
 5. **`contractorSnapshot` reflects the contractor at posting time, not
    retroactively.** A later change to the underlying `Contractor` row
    (name, NIP) never rewrites an already-posted line's snapshot — the
@@ -625,9 +629,10 @@ silently absorbed into the expense account" (quoted exactly);
 Accounts Payable's Alternatives table entry "No precedent whatsoever in
 the repo for this kind of mapping (verified — nothing similar exists);
 building AP's own rules engine would duplicate the future Posting Rules
-Engine" (quoted exactly); and #5663's `documentType` enum
+Engine" (quoted exactly); and #5663's `documentType` list
 (`external_foreign`/`external_own`/`internal`/`collective`/`corrective`/
-`substitute`, art. 20 ust. 2–3) (confirmed exactly). This is now the
+`substitute`, art. 20 ust. 2–3) (confirmed exactly in the spec; the merged
+ledger stores the field as free text). This is now the
 third spec in the family with a clean re-check on its own citations.
 
 **Literature grounding (Step 2) — a real citation gap, now closed.**
@@ -942,7 +947,7 @@ the `GET` route; both are ordinary authenticated, feature-gated routes.
   Phase 1 deliverable. **Decided (2026-10-09, author):** Phase 1 ships API-only, because the
   posting action and its tests do not depend on a UI, and the invoice
   surface is a `sales` deliverable that would otherwise gate this module.
-- **The module-config settings page** (`backend/settings/page.tsx`,
+- **The module-config settings page** (`backend/sales_invoices_gl_posting/settings/page.tsx`,
   File Manifest) is a minimal `<CrudForm>` (from
   `@open-mercato/ui/backend/CrudForm`) with three `<FormField>`-wrapped
   `LedgerAccount` pickers (`receivableAccountId`, `vatOutputAccountId`,
@@ -1013,7 +1018,7 @@ organization-qualified names** and does not change the shared service's
 contract:
 
 - `lib/moduleConfig.ts` owns the key builder:
-  `accountConfigKey(name, organizationId)` → `"<name>:<organizationId>"` for
+  `organizationConfigKey(name, organizationId)` → `"<name>:<organizationId>"` for
   `name` in `receivableAccountId` / `vatOutputAccountId` / `roundingAccountId` /
   `postingEnabled`,
   and passes `scope: { tenantId, organizationId }` on every read and write so
@@ -1128,7 +1133,8 @@ readers. No cache operation publishes uncommitted values.
   `ORGANIZATION_REQUIRED` without an active organization, validates every
   supplied account id is a live `LedgerAccount` in the same
   tenant/organization scope (422 `ACCOUNT_OUT_OF_SCOPE`), and runs
-  `validateCrudMutationGuard`/`runCrudMutationGuardAfterSuccess` with
+  the route mutation guards (`runRouteMutationGuards`, which runs the
+  registered guards and the bridged legacy service) with
   `resourceKind: 'sales_invoices_gl_posting.settings'`,
   `resourceId: '<organizationId>'`, `operation: 'update'`. Writes go through
   `lib/moduleConfig.ts` so the organization-qualified keys stay in one place.
@@ -1208,14 +1214,15 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
 | `data/entities.ts` | Create | `SalesInvoiceGlPosting`, `SalesInvoiceLineRevenueAccount` |
 | `data/validators.ts` | Create | Zod schema for `postSalesInvoiceToLedger` |
 | `commands/postSalesInvoiceToLedger.ts` | Create | The only mutating command |
-| `lib/moduleConfig.ts` | Create | Reads one settings snapshot and atomically saves the three organization-scoped account IDs |
+| `lib/moduleConfig.ts` | Create | Reads one settings snapshot and atomically saves the four organization-scoped values (three account IDs and `postingEnabled`) |
 | `acl.ts` | Create | Invoice posting and settings management features |
 | `setup.ts` | Create | `defaultRoleFeatures`, no seed data |
 | `index.ts` | Create | `requires: ['ledger', 'sales', 'currencies']` |
 | `api/postings/[salesInvoiceId]/route.ts` | Create | `openApi`-documented read route, served at `/api/sales_invoices_gl_posting/postings/:salesInvoiceId` |
 | `api/postings/[salesInvoiceId]/post/route.ts` | Create | Custom write route (served at `/api/sales_invoices_gl_posting/postings/:salesInvoiceId/post`), dispatches `postSalesInvoiceToLedger` via `commandBus`, mapped to `update` |
 | `api/settings/route.ts` | Create | `GET`/`PUT` module settings (served at `/api/sales_invoices_gl_posting/settings`), organization-qualified keys via `lib/moduleConfig.ts`, mutation guard on `PUT`, `openApi`-documented |
-| `backend/settings/page.tsx` | Create | Minimal `receivableAccountId`/`vatOutputAccountId`/`roundingAccountId` config UI |
+| `backend/sales_invoices_gl_posting/settings/page.tsx` | Create | Minimal `receivableAccountId`/`vatOutputAccountId`/`roundingAccountId`/`postingEnabled` config UI, served at `/backend/sales_invoices_gl_posting/settings` |
+| `i18n/{en,pl,de,es,ko}.json` | Create | Settings page labels and the settings route's error messages |
 
 ## Testing Strategy
 
@@ -1438,7 +1445,8 @@ below were checked against that PR at head `ab7f5320c8`.
 ## Risks & Impact Review
 
 - **Delivery dependencies.** Posting depends on the ledger contract in #5663
-  and deployed implementation in #9860. Both PRs are open. #5962 is a
+  (approved, not merged yet) and the implementation in #9860 (merged
+  2026-11-27). #5962 is a
   precedent. The registry proposal #5955 closed unmerged on 2026-11-15 and
   main has no `contractors` module. No Phase 1 deployment depends on the
   registry. Without it, omit the optional contractor ID.
@@ -2109,3 +2117,10 @@ Not yet re-reviewed after these edits.
   must skip invoices that mirror an external ledger.
 - Added a Risks entry. No change to the data model; the command and the
   settings API gain the `postingEnabled` check and field.
+
+### 2026-11-28 — Settings implemented (AR-2); ledger status aligned
+
+- Module Config: the key builder is `organizationConfigKey(name, organizationId)`, because it also covers the non-account key `postingEnabled`. The stored key format `"<name>:<organizationId>"` is unchanged.
+- Settings API: `PUT` runs the route mutation guards (`runRouteMutationGuards`) instead of the deprecated `validateCrudMutationGuard`/`runCrudMutationGuardAfterSuccess`.
+- File Manifest: the settings page lives at `backend/sales_invoices_gl_posting/settings/page.tsx` (served at `/backend/sales_invoices_gl_posting/settings`; `backend/settings/page.tsx` would map to the shared `/backend/settings` route), `lib/moduleConfig.ts` saves four values, and the module gains `i18n/`.
+- Ledger alignment: the ledger implementation (#9860) merged on 2026-11-27 and #5663 is approved, not merged; Multi-Currency (#6190) merged on 2026-11-27. The merged ledger stores `documentType` as free text of at most 100 characters, so `external_own` is a convention this module must send, not an enum the ledger validates. A posting into a locked fiscal period answers 422 without an error code, so the command cannot rely on a ledger code for that case.
