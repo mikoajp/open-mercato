@@ -1,0 +1,21 @@
+{
+  "sales_invoices_gl_posting.errors.accountOutOfScope": "Każde konto musi być aktywnym kontem księgi wybranej organizacji.",
+  "sales_invoices_gl_posting.errors.forbidden": "Brak dostępu",
+  "sales_invoices_gl_posting.errors.organizationRequired": "Wybierz organizację, aby zarządzać jej ustawieniami księgowania faktur sprzedaży.",
+  "sales_invoices_gl_posting.errors.settingsBusy": "Ustawienia zapisuje teraz ktoś inny. Spróbuj ponownie.",
+  "sales_invoices_gl_posting.errors.unauthorized": "Brak autoryzacji",
+  "sales_invoices_gl_posting.errors.unexpected": "Wewnętrzny błąd serwera",
+  "sales_invoices_gl_posting.settings.errors.load": "Nie udało się wczytać ustawień",
+  "sales_invoices_gl_posting.settings.flash.saved": "Ustawienia zapisane",
+  "sales_invoices_gl_posting.settings.form.action.save": "Zapisz ustawienia",
+  "sales_invoices_gl_posting.settings.form.field.postingEnabled": "Księguj faktury sprzedaży tej organizacji w księdze głównej",
+  "sales_invoices_gl_posting.settings.form.field.postingEnabledHelp": "Pozostaw wyłączone dla organizacji, której faktury są wystawiane i księgowane w innym systemie i importowane tutaj.",
+  "sales_invoices_gl_posting.settings.form.field.receivableAccount": "Konto należności",
+  "sales_invoices_gl_posting.settings.form.field.roundingAccount": "Konto różnic z zaokrągleń",
+  "sales_invoices_gl_posting.settings.form.field.roundingAccountHelp": "Potrzebne tylko dla faktur w walucie obcej, które zostawiają różnicę z zaokrągleń.",
+  "sales_invoices_gl_posting.settings.form.field.vatOutputAccount": "Konto VAT należnego",
+  "sales_invoices_gl_posting.settings.form.group.accounts": "Konta",
+  "sales_invoices_gl_posting.settings.form.group.posting": "Księgowanie",
+  "sales_invoices_gl_posting.settings.loading": "Wczytywanie ustawień…",
+  "sales_invoices_gl_posting.settings.page.title": "Ustawienia księgowania faktur sprzedaży"
+}

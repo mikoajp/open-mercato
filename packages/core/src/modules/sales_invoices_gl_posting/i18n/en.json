@@ -1,0 +1,21 @@
+{
+  "sales_invoices_gl_posting.errors.accountOutOfScope": "Each account must be an active ledger account of the selected organization.",
+  "sales_invoices_gl_posting.errors.forbidden": "Forbidden",
+  "sales_invoices_gl_posting.errors.organizationRequired": "Select an organization to manage its sales invoice posting settings.",
+  "sales_invoices_gl_posting.errors.settingsBusy": "The settings are being saved by someone else. Try again.",
+  "sales_invoices_gl_posting.errors.unauthorized": "Unauthorized",
+  "sales_invoices_gl_posting.errors.unexpected": "Internal server error",
+  "sales_invoices_gl_posting.settings.errors.load": "Failed to load the settings",
+  "sales_invoices_gl_posting.settings.flash.saved": "Settings saved",
+  "sales_invoices_gl_posting.settings.form.action.save": "Save settings",
+  "sales_invoices_gl_posting.settings.form.field.postingEnabled": "Post sales invoices of this organization to the ledger",
+  "sales_invoices_gl_posting.settings.form.field.postingEnabledHelp": "Leave this off for an organization whose invoices are issued and booked in another system and imported here.",
+  "sales_invoices_gl_posting.settings.form.field.receivableAccount": "Receivable account",
+  "sales_invoices_gl_posting.settings.form.field.roundingAccount": "Rounding account",
+  "sales_invoices_gl_posting.settings.form.field.roundingAccountHelp": "Needed only for foreign-currency invoices that leave a rounding difference.",
+  "sales_invoices_gl_posting.settings.form.field.vatOutputAccount": "Output VAT account",
+  "sales_invoices_gl_posting.settings.form.group.accounts": "Accounts",
+  "sales_invoices_gl_posting.settings.form.group.posting": "Posting",
+  "sales_invoices_gl_posting.settings.loading": "Loading settings…",
+  "sales_invoices_gl_posting.settings.page.title": "Sales invoice posting settings"
+}

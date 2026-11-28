@@ -1,0 +1,21 @@
+{
+  "sales_invoices_gl_posting.errors.accountOutOfScope": "Jedes Konto muss ein aktives Hauptbuchkonto der ausgewählten Organisation sein.",
+  "sales_invoices_gl_posting.errors.forbidden": "Zugriff verweigert",
+  "sales_invoices_gl_posting.errors.organizationRequired": "Wählen Sie eine Organisation aus, um ihre Einstellungen für die Buchung von Ausgangsrechnungen zu verwalten.",
+  "sales_invoices_gl_posting.errors.settingsBusy": "Die Einstellungen werden gerade von jemand anderem gespeichert. Versuchen Sie es erneut.",
+  "sales_invoices_gl_posting.errors.unauthorized": "Nicht autorisiert",
+  "sales_invoices_gl_posting.errors.unexpected": "Interner Serverfehler",
+  "sales_invoices_gl_posting.settings.errors.load": "Die Einstellungen konnten nicht geladen werden",
+  "sales_invoices_gl_posting.settings.flash.saved": "Einstellungen gespeichert",
+  "sales_invoices_gl_posting.settings.form.action.save": "Einstellungen speichern",
+  "sales_invoices_gl_posting.settings.form.field.postingEnabled": "Ausgangsrechnungen dieser Organisation ins Hauptbuch buchen",
+  "sales_invoices_gl_posting.settings.form.field.postingEnabledHelp": "Für eine Organisation, deren Rechnungen in einem anderen System ausgestellt und gebucht und hier importiert werden, deaktiviert lassen.",
+  "sales_invoices_gl_posting.settings.form.field.receivableAccount": "Forderungskonto",
+  "sales_invoices_gl_posting.settings.form.field.roundingAccount": "Rundungskonto",
+  "sales_invoices_gl_posting.settings.form.field.roundingAccountHelp": "Nur für Fremdwährungsrechnungen mit Rundungsdifferenz erforderlich.",
+  "sales_invoices_gl_posting.settings.form.field.vatOutputAccount": "Umsatzsteuerkonto",
+  "sales_invoices_gl_posting.settings.form.group.accounts": "Konten",
+  "sales_invoices_gl_posting.settings.form.group.posting": "Buchung",
+  "sales_invoices_gl_posting.settings.loading": "Einstellungen werden geladen…",
+  "sales_invoices_gl_posting.settings.page.title": "Einstellungen für die Buchung von Ausgangsrechnungen"
+}

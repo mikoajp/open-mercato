@@ -1,0 +1,21 @@
+{
+  "sales_invoices_gl_posting.errors.accountOutOfScope": "Cada cuenta debe ser una cuenta activa del libro mayor de la organización seleccionada.",
+  "sales_invoices_gl_posting.errors.forbidden": "Prohibido",
+  "sales_invoices_gl_posting.errors.organizationRequired": "Seleccione una organización para gestionar su configuración de contabilización de facturas de venta.",
+  "sales_invoices_gl_posting.errors.settingsBusy": "Otra persona está guardando la configuración. Inténtelo de nuevo.",
+  "sales_invoices_gl_posting.errors.unauthorized": "No autorizado",
+  "sales_invoices_gl_posting.errors.unexpected": "Error interno del servidor",
+  "sales_invoices_gl_posting.settings.errors.load": "No se pudo cargar la configuración",
+  "sales_invoices_gl_posting.settings.flash.saved": "Configuración guardada",
+  "sales_invoices_gl_posting.settings.form.action.save": "Guardar configuración",
+  "sales_invoices_gl_posting.settings.form.field.postingEnabled": "Contabilizar en el libro mayor las facturas de venta de esta organización",
+  "sales_invoices_gl_posting.settings.form.field.postingEnabledHelp": "Déjelo desactivado para una organización cuyas facturas se emiten y contabilizan en otro sistema y se importan aquí.",
+  "sales_invoices_gl_posting.settings.form.field.receivableAccount": "Cuenta de clientes",
+  "sales_invoices_gl_posting.settings.form.field.roundingAccount": "Cuenta de redondeo",
+  "sales_invoices_gl_posting.settings.form.field.roundingAccountHelp": "Solo es necesaria para facturas en moneda extranjera que dejan una diferencia de redondeo.",
+  "sales_invoices_gl_posting.settings.form.field.vatOutputAccount": "Cuenta de IVA repercutido",
+  "sales_invoices_gl_posting.settings.form.group.accounts": "Cuentas",
+  "sales_invoices_gl_posting.settings.form.group.posting": "Contabilización",
+  "sales_invoices_gl_posting.settings.loading": "Cargando configuración…",
+  "sales_invoices_gl_posting.settings.page.title": "Configuración de contabilización de facturas de venta"
+}
